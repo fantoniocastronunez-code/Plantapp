@@ -2,7 +2,8 @@ import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { identifyPlant, identifyPlantFromImage } from '../services/geminiService';
 import { addPlant } from '../services/dbService';
-import { Sparkles, Loader2, Camera } from 'lucide-react';
+import { Sparkles, Loader2, Camera, Image as ImageIcon } from 'lucide-react';
+import { ScannerCamera } from '../components/ScannerCamera';
 
 export const AddPlant = () => {
   const navigate = useNavigate();
@@ -16,9 +17,38 @@ export const AddPlant = () => {
   const [description, setDescription] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   
+  const [showCamera, setShowCamera] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const processImageWithGemini = async (rawBase64: string, mimeType: string) => {
+    setError('');
+    setIsAiLoading(true);
+    try {
+      const data = await identifyPlantFromImage(rawBase64, mimeType);
+      if (data.common_name) setName(data.common_name);
+      setSpecies(data.species);
+      setWaterFreq(data.watering_frequency);
+      setFertFreq(data.fertilizer_frequency);
+      setDescription(data.description);
+    } catch (err: any) {
+      console.error(err);
+      if (err.message && err.message.includes('503')) {
+        setError('Google Gemini está experimentando alta demanda temporal. Por favor, intenta de nuevo en unos segundos.');
+      } else {
+        setError('No pudimos identificar la planta. Intenta llenar los datos manualmente.');
+      }
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handleCameraCapture = (rawBase64: string, mimeType: string) => {
+    setShowCamera(false);
+    setPreviewImage(`data:${mimeType};base64,${rawBase64}`);
+    processImageWithGemini(rawBase64, mimeType);
+  };
 
   const handleIdentify = async () => {
     if (!name) {
@@ -45,45 +75,27 @@ export const AddPlant = () => {
     }
   };
 
-  const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setError('');
-    setIsAiLoading(true);
-
+    
+    // Convertir y comprimir si es necesario, aquí usaremos FileReader
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result as string;
       setPreviewImage(base64String);
 
-      // Extract raw base64 and mime type
       const mimeType = base64String.substring(base64String.indexOf(":") + 1, base64String.indexOf(";"));
       const rawBase64 = base64String.split(',')[1];
 
-      try {
-        const data = await identifyPlantFromImage(rawBase64, mimeType);
-        if (data.common_name) setName(data.common_name);
-        setSpecies(data.species);
-        setWaterFreq(data.watering_frequency);
-        setFertFreq(data.fertilizer_frequency);
-        setDescription(data.description);
-      } catch (err: any) {
-        console.error(err);
-        if (err.message && err.message.includes('503')) {
-          setError('Google Gemini está experimentando alta demanda temporal. Por favor, intenta escanear de nuevo en unos segundos.');
-        } else {
-          setError('No pudimos identificar la planta. Intenta llenar los datos manualmente.');
-        }
-      } finally {
-        setIsAiLoading(false);
-      }
+      // Podríamos comprimir esta imagen usando canvas también para evitar errores con fotos de galería,
+      // pero usualmente la galería da menos problemas de RAM que capture="environment". 
+      // Por consistencia, lo enviamos directo (o podrías hacer una compresión aquí igual).
+      processImageWithGemini(rawBase64, mimeType);
     };
     reader.readAsDataURL(file);
-  };
-
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,6 +125,13 @@ export const AddPlant = () => {
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
+      {showCamera && (
+        <ScannerCamera 
+          onCapture={handleCameraCapture} 
+          onCancel={() => setShowCamera(false)} 
+        />
+      )}
+
       <h1 className="text-2xl font-bold mb-6 text-gray-800">Agregar Nueva Planta</h1>
       
       {error && (
@@ -121,37 +140,47 @@ export const AddPlant = () => {
         </div>
       )}
 
-      {/* Escáner de Plantas (IA Multimodal) */}
       <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 rounded-2xl shadow-sm border border-emerald-100 mb-6 text-center">
         <h2 className="text-lg font-bold text-emerald-800 mb-2">Escáner de Plantas Inteligente</h2>
         <p className="text-sm text-emerald-600 mb-4">
-          Toma una foto o sube una imagen de tu planta y Gemini la identificará automáticamente.
+          Apunta con la cámara a tu planta para que la IA la identifique automáticamente.
         </p>
         
         <input 
           type="file" 
           accept="image/*" 
-          capture="environment" 
           ref={fileInputRef}
           className="hidden"
-          onChange={handleImageCapture}
+          onChange={handleGalleryUpload}
         />
         
         <div className="flex flex-col sm:flex-row justify-center gap-3">
           <button 
             type="button"
-            onClick={triggerFileInput}
+            onClick={() => setShowCamera(true)}
             disabled={isAiLoading}
             className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition shadow-md w-full sm:w-auto"
           >
             {isAiLoading ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
-            {isAiLoading ? 'Analizando...' : 'Escanear Planta'}
+            {isAiLoading ? 'Analizando...' : 'Abrir Cámara'}
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isAiLoading}
+            className="bg-white hover:bg-gray-50 disabled:bg-gray-200 text-emerald-700 border border-emerald-200 px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition shadow-sm w-full sm:w-auto"
+            title="Sube una foto vieja desde la galería"
+          >
+            <ImageIcon size={20} />
+            Galería
           </button>
         </div>
 
         {previewImage && (
-          <div className="mt-4 flex justify-center">
-            <img src={previewImage} alt="Preview" className="h-32 rounded-lg border-2 border-emerald-200 object-cover shadow-sm" />
+          <div className="mt-4 flex flex-col items-center">
+            <img src={previewImage} alt="Preview" className="h-40 w-40 rounded-2xl border-4 border-emerald-200 object-cover shadow-md" />
+            <span className="text-xs text-emerald-600 font-bold uppercase mt-2">Imagen Capturada</span>
           </div>
         )}
       </div>
@@ -163,7 +192,6 @@ export const AddPlant = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-        
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Nombre (común o apodo)</label>
           <div className="flex gap-2">
