@@ -30,9 +30,13 @@ export const AddPlant = () => {
       setWaterFreq(data.watering_frequency);
       setFertFreq(data.fertilizer_frequency);
       setDescription(data.description);
-    } catch (err) {
-      setError('Hubo un error al conectar con Gemini IA. Intenta llenar los datos manualmente.');
+    } catch (err: any) {
       console.error(err);
+      if (err.message && err.message.includes('503')) {
+        setError('Google Gemini está experimentando alta demanda temporal. Por favor, intenta presionar el botón de nuevo en unos segundos.');
+      } else {
+        setError('Hubo un error al conectar con Gemini IA. Intenta llenar los datos manualmente.');
+      }
     } finally {
       setIsAiLoading(false);
     }
