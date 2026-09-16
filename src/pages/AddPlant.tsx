@@ -1,17 +1,20 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { identifyPlant } from '../services/geminiService';
+import { identifyPlant, identifyPlantFromImage } from '../services/geminiService';
 import { addPlant } from '../services/dbService';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Camera } from 'lucide-react';
 
 export const AddPlant = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [species, setSpecies] = useState('');
   const [waterFreq, setWaterFreq] = useState(0);
   const [fertFreq, setFertFreq] = useState(0);
   const [description, setDescription] = useState('');
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -33,13 +36,54 @@ export const AddPlant = () => {
     } catch (err: any) {
       console.error(err);
       if (err.message && err.message.includes('503')) {
-        setError('Google Gemini está experimentando alta demanda temporal. Por favor, intenta presionar el botón de nuevo en unos segundos.');
+        setError('Google Gemini está experimentando alta demanda temporal. Por favor, intenta de nuevo en unos segundos.');
       } else {
         setError('Hubo un error al conectar con Gemini IA. Intenta llenar los datos manualmente.');
       }
     } finally {
       setIsAiLoading(false);
     }
+  };
+
+  const handleImageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError('');
+    setIsAiLoading(true);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result as string;
+      setPreviewImage(base64String);
+
+      // Extract raw base64 and mime type
+      const mimeType = base64String.substring(base64String.indexOf(":") + 1, base64String.indexOf(";"));
+      const rawBase64 = base64String.split(',')[1];
+
+      try {
+        const data = await identifyPlantFromImage(rawBase64, mimeType);
+        if (data.common_name) setName(data.common_name);
+        setSpecies(data.species);
+        setWaterFreq(data.watering_frequency);
+        setFertFreq(data.fertilizer_frequency);
+        setDescription(data.description);
+      } catch (err: any) {
+        console.error(err);
+        if (err.message && err.message.includes('503')) {
+          setError('Google Gemini está experimentando alta demanda temporal. Por favor, intenta escanear de nuevo en unos segundos.');
+        } else {
+          setError('No pudimos identificar la planta. Intenta llenar los datos manualmente.');
+        }
+      } finally {
+        setIsAiLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -77,35 +121,73 @@ export const AddPlant = () => {
         </div>
       )}
 
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre (común o apodo)</label>
-        <div className="flex gap-2">
-          <input 
-            type="text" 
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition"
-            placeholder="Ej. Ficus de la sala"
-          />
+      {/* Escáner de Plantas (IA Multimodal) */}
+      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 rounded-2xl shadow-sm border border-emerald-100 mb-6 text-center">
+        <h2 className="text-lg font-bold text-emerald-800 mb-2">Escáner de Plantas Inteligente</h2>
+        <p className="text-sm text-emerald-600 mb-4">
+          Toma una foto o sube una imagen de tu planta y Gemini la identificará automáticamente.
+        </p>
+        
+        <input 
+          type="file" 
+          accept="image/*" 
+          capture="environment" 
+          ref={fileInputRef}
+          className="hidden"
+          onChange={handleImageCapture}
+        />
+        
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
           <button 
             type="button"
-            onClick={handleIdentify}
-            disabled={isAiLoading || !name}
-            className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition"
+            onClick={triggerFileInput}
+            disabled={isAiLoading}
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition shadow-md w-full sm:w-auto"
           >
-            {isAiLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-            Autocompletar con IA
+            {isAiLoading ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
+            {isAiLoading ? 'Analizando...' : 'Escanear Planta'}
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Escribe el nombre y presiona el botón para que Gemini IA busque los cuidados ideales.
-        </p>
+
+        {previewImage && (
+          <div className="mt-4 flex justify-center">
+            <img src={previewImage} alt="Preview" className="h-32 rounded-lg border-2 border-emerald-200 object-cover shadow-sm" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-4 mb-6">
+        <div className="h-px bg-gray-200 flex-1"></div>
+        <span className="text-sm text-gray-400 font-medium uppercase tracking-wider">o ingresa manualmente</span>
+        <div className="h-px bg-gray-200 flex-1"></div>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
         
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Nombre (común o apodo)</label>
+          <div className="flex gap-2">
+            <input 
+              type="text" 
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition"
+              placeholder="Ej. Ficus de la sala"
+            />
+            <button 
+              type="button"
+              onClick={handleIdentify}
+              disabled={isAiLoading || !name}
+              className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition"
+              title="Autocompletar especie si ya sabes el nombre"
+            >
+              {isAiLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+            </button>
+          </div>
+        </div>
+
         {description && (
-          <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-800 text-sm mb-4">
+          <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-800 text-sm my-4">
             <strong className="block mb-1">Consejo de Gemini:</strong>
             {description}
           </div>
