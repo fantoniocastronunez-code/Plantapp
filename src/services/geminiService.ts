@@ -13,7 +13,7 @@ export const identifyPlant = async (plantName: string): Promise<GeminiPlantInfo>
   const prompt = `Eres un experto botánico. Proporciona la especie científica, la frecuencia de riego en días y la frecuencia de fertilización en días para una planta de interior llamada "${plantName}". Devuelve la información en formato JSON siguiendo estrictamente este esquema.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.6-flash',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
